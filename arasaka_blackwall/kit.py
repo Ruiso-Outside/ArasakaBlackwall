@@ -32,7 +32,7 @@ LINE = QColor(42, 42, 49)
 FG = QColor(236, 236, 240)
 MUTED = QColor(140, 140, 150)
 
-FONTS = {"ui": "Sans Serif", "mono": "Monospace", "brand": "Sans Serif"}
+FONTS = {"ui": "Sans Serif", "mono": "Monospace", "brand": "Sans Serif", "code": "Monospace"}
 
 
 # ================================================================ fontes e estilo
@@ -48,6 +48,11 @@ def load_fonts():
     for cand in ["Share Tech Mono", "JetBrains Mono", "Consolas", "DejaVu Sans Mono", "Monospace"]:
         if cand in fams:
             FONTS["mono"] = cand
+            break
+    for cand in ["JetBrains Mono", "Fira Code", "Cascadia Code", "Cascadia Mono", "Source Code Pro",
+                 "Ubuntu Mono", "Consolas", "DejaVu Sans Mono", "Liberation Mono", "Monospace"]:
+        if cand in fams:
+            FONTS["code"] = cand
             break
 
 
