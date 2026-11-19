@@ -13,7 +13,8 @@ R=$'\e[38;2;227;18;31m'; B=$'\e[1m'; N=$'\e[0m'
 ok() { printf '   %s■%s %s\n' "$R" "$N" "$*"; }
 
 rm -f "$HOME/.local/bin/$APP_ID" "$APPS/$APP_ID.desktop" \
-      "${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor/scalable/apps/$APP_ID.svg"
+      "${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor/scalable/apps/$APP_ID.svg" \
+      "${XDG_DATA_HOME:-$HOME/.local/share}/icons/Arasaka/scalable/apps/$APP_ID.svg"
 rm -rf "$DATA/app" "$DATA/venv"
 ok "app removido"
 if [ "${1:-}" = "--tudo" ]; then
