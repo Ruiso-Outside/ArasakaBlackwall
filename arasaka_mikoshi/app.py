@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (QApplication, QButtonGroup, QCheckBox, QComboBox,
                                QSpinBox, QStackedWidget, QVBoxLayout, QWidget)
 
 from . import core
+from . import fx
 from .core import APP_NAME, VERSION, VM, Config
 from .kit import (BG2, FG, FONTS, LINE, MUTED, RED, RED_HI, BaseDialog, CutFrame, HudHeader, Indicator, Page,
                   SidebarBrand, StatusCard, button, label, load_fonts, logo_pixmap, spaced, stylesheet)
@@ -1109,6 +1110,8 @@ def main(argv: list[str] | None = None):
     app.setStyleSheet(stylesheet() + EXTRA_QSS)
     app.setWindowIcon(QIcon(str(core.ASSETS / "arasaka-mikoshi.svg")))
     win = MainWindow(Config())
+    # visual Cyberpunk (CRT, glitch, inicialização, barra de status); sem a tela de inicialização nas prévias
+    fx.install(win, name="ARASAKA MIKOSHI", icon=core.ASSETS / "arasaka-mikoshi.svg", boot=not any(a.startswith("--screenshot=") for a in argv))
     win.show()
     shot = next((a.split("=", 1)[1] for a in argv if a.startswith("--screenshot=")), None)
     if shot:
