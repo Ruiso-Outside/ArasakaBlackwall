@@ -1,5 +1,5 @@
 """
-ARASAKA MIKOSHI // interface (PySide6 / Qt 6).
+ARASAKA BLACKWALL // interface (PySide6 / Qt 6).
 """
 from __future__ import annotations
 
@@ -272,7 +272,7 @@ def iso_menu_button(parent) -> QPushButton:
 # ================================================================ pagina: maquinas
 class MachinesPage(Page):
     def __init__(self, win):
-        super().__init__(win, "CONSTRUCTS", "Suas maquinas virtuais", "MIKOSHI://VAULT")
+        super().__init__(win, "CONSTRUCTS", "Suas maquinas virtuais", "BLACKWALL://VAULT")
         self.stats = core.Stats()
         self.tasks = []
         body = QHBoxLayout()
@@ -731,7 +731,7 @@ class EditDialog(BaseDialog):
 # ================================================================ pagina: nova maquina
 class NewPage(Page):
     def __init__(self, win):
-        super().__init__(win, "NOVO CONSTRUCT", "Crie uma maquina virtual com Windows ou Linux", "MIKOSHI://FORGE")
+        super().__init__(win, "NOVO CONSTRUCT", "Crie uma maquina virtual com Windows ou Linux", "BLACKWALL://FORGE")
         self.lay.addWidget(label("01  //  SISTEMA", "section", 3))
         cards = QHBoxLayout()
         cards.setSpacing(12)
@@ -903,7 +903,7 @@ class NewPage(Page):
 # ================================================================ pagina: sistema
 class SystemPage(Page):
     def __init__(self, win):
-        super().__init__(win, "SYSTEM STATUS", "Virtualizacao do computador hospedeiro", "MIKOSHI://HOST")
+        super().__init__(win, "SYSTEM STATUS", "Virtualizacao do computador hospedeiro", "BLACKWALL://HOST")
         self.grid = QGridLayout()
         self.grid.setSpacing(14)
         self.lay.addLayout(self.grid)
@@ -925,7 +925,7 @@ class SystemPage(Page):
         il.setContentsMargins(20, 14, 20, 14)
         il.addWidget(label("COMO FUNCIONA", "section", 3))
         il.addWidget(label(
-            "O Mikoshi usa o QEMU com KVM, a mesma tecnologia do GNOME Boxes e do virt-manager: a VM roda "
+            "O Blackwall usa o QEMU com KVM, a mesma tecnologia do GNOME Boxes e do virt-manager: a VM roda "
             "direto no processador, com desempenho perto do nativo. Depois de instalar, encerre a sessao e "
             "entre de novo para a permissao do KVM valer.", "muted", 0.3, wrap=True))
         self.lay.addWidget(info)
@@ -966,7 +966,7 @@ class SystemPage(Page):
 # ================================================================ pagina: configuracoes
 class SettingsPage(Page):
     def __init__(self, win):
-        super().__init__(win, "CONFIGURACOES", "Preferencias do Mikoshi", f"BUILD://{VERSION}")
+        super().__init__(win, "CONFIGURACOES", "Preferencias do Blackwall", f"BUILD://{VERSION}")
         cfg = win.cfg
         box = CutFrame(cut=12)
         form = QFormLayout(box)
@@ -994,7 +994,7 @@ class SettingsPage(Page):
         al.setContentsMargins(22, 18, 22, 18)
         al.addWidget(label(f"{APP_NAME}  v{VERSION}", None, 3, 16, True))
         al.addWidget(label("Gerenciador de maquinas virtuais para Linux (QEMU/KVM, OVMF, swtpm, SPICE). "
-                           "Arasaka e Mikoshi sao da CD PROJEKT RED; projeto pessoal de fa.", "muted", 0.3,
+                           "Arasaka e Blackwall sao da CD PROJEKT RED; projeto pessoal de fa.", "muted", 0.3,
                            wrap=True))
         self.lay.addWidget(about)
         self.lay.addStretch()
@@ -1011,7 +1011,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.cfg = cfg
         self.setWindowTitle(APP_NAME)
-        self.setWindowIcon(QIcon(str(core.ASSETS / "arasaka-mikoshi.svg")))
+        self.setWindowIcon(QIcon(str(core.ASSETS / "arasaka-blackwall.svg")))
         self.resize(1320, 900)
         self.setMinimumSize(1080, 720)
         root = QWidget()
@@ -1025,7 +1025,7 @@ class MainWindow(QMainWindow):
         sl = QVBoxLayout(side)
         sl.setContentsMargins(0, 0, 0, 14)
         sl.setSpacing(2)
-        sl.addWidget(SidebarBrand("MIKOSHI"))
+        sl.addWidget(SidebarBrand("BLACKWALL"))
         sl.addSpacing(10)
         self.nav = QButtonGroup(self)
         self.stack = QStackedWidget()
@@ -1049,7 +1049,7 @@ class MainWindow(QMainWindow):
         self.link = label("■  KVM", "muted", 1.5, 11, True)
         self.link.setContentsMargins(20, 0, 0, 0)
         sl.addWidget(self.link)
-        ver = label(f"MIKOSHI v{VERSION}{'  ·  DEMO' if core.DEMO else ''}", "dim", 2, 11)
+        ver = label(f"BLACKWALL v{VERSION}{'  ·  DEMO' if core.DEMO else ''}", "dim", 2, 11)
         ver.setContentsMargins(20, 0, 0, 0)
         sl.addWidget(ver)
         h.addWidget(side)
@@ -1108,10 +1108,10 @@ def main(argv: list[str] | None = None):
     app = QApplication(argv)
     load_fonts()
     app.setStyleSheet(stylesheet() + EXTRA_QSS)
-    app.setWindowIcon(QIcon(str(core.ASSETS / "arasaka-mikoshi.svg")))
+    app.setWindowIcon(QIcon(str(core.ASSETS / "arasaka-blackwall.svg")))
     win = MainWindow(Config())
     # visual Cyberpunk (CRT, glitch, inicialização, barra de status); sem a tela de inicialização nas prévias
-    fx.install(win, name="ARASAKA MIKOSHI", icon=core.ASSETS / "arasaka-mikoshi.svg", boot=not any(a.startswith("--screenshot=") for a in argv))
+    fx.install(win, name="ARASAKA BLACKWALL", icon=core.ASSETS / "arasaka-blackwall.svg", boot=not any(a.startswith("--screenshot=") for a in argv))
     win.show()
     shot = next((a.split("=", 1)[1] for a in argv if a.startswith("--screenshot=")), None)
     if shot:

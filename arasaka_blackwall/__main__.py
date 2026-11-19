@@ -1,8 +1,8 @@
 """
-ARASAKA MIKOSHI // ponto de entrada.
+ARASAKA BLACKWALL // ponto de entrada.
 
-  arasaka-mikoshi                 abre a interface
-  arasaka-mikoshi --start SLUG    liga uma VM direto (atalhos)
+  arasaka-blackwall                 abre a interface
+  arasaka-blackwall --start SLUG    liga uma VM direto (atalhos)
 """
 import sys
 

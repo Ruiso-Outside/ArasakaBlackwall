@@ -1,5 +1,5 @@
 """
-ARASAKA MIKOSHI // nucleo.
+ARASAKA BLACKWALL // nucleo.
 
 Maquinas virtuais com QEMU + KVM (o mesmo motor usado pelo GNOME Boxes e
 pelo virt-manager), sem daemon: cada VM e uma pasta com vm.json, disco
@@ -20,13 +20,13 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-APP_ID = "arasaka-mikoshi"
-APP_NAME = "ARASAKA MIKOSHI"
+APP_ID = "arasaka-blackwall"
+APP_NAME = "ARASAKA BLACKWALL"
 VERSION = "1.0.0"
 
-DEMO = os.environ.get("ARASAKA_MIKOSHI_DEMO") == "1" or sys.platform == "win32"
+DEMO = os.environ.get("ARASAKA_BLACKWALL_DEMO") == "1" or sys.platform == "win32"
 
-_home = os.environ.get("ARASAKA_MIKOSHI_HOME")
+_home = os.environ.get("ARASAKA_BLACKWALL_HOME")
 HOME = Path(_home) if _home else Path.home()
 if _home:
     DATA = HOME / ".local/share" / APP_ID
@@ -35,6 +35,28 @@ else:
     DATA = Path(os.environ.get("XDG_DATA_HOME", HOME / ".local/share")) / APP_ID
     CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", HOME / ".config")) / APP_ID
 ASSETS = Path(__file__).resolve().parent / "assets"
+
+
+def _migrate_old_name():
+    """O app se chamava Arasaka Mikoshi: move as VMs e a configuracao da pasta antiga, uma vez."""
+    for new in (DATA, CONFIG_DIR):
+        old = new.with_name("arasaka-mikoshi")
+        if old.is_dir() and not new.exists():
+            try:
+                old.rename(new)
+            except OSError:
+                pass
+    cfg = CONFIG_DIR / "config.json"
+    try:
+        text = cfg.read_text(encoding="utf-8")
+        if "/arasaka-mikoshi/" in text:
+            cfg.write_text(text.replace("/arasaka-mikoshi/", "/arasaka-blackwall/"), encoding="utf-8")
+    except OSError:
+        pass
+
+
+if not DEMO:
+    _migrate_old_name()
 
 
 # ================================================================ config
@@ -342,7 +364,7 @@ def build_command(cfg: Config, vm: VM) -> list[str]:
     if secure:
         machine += ",smm=on"
     safe_name = vm.name.replace(",", " ")
-    cmd = [cfg["qemu"], "-name", f"{safe_name},process=mikoshi-{vm.slug}", "-machine", machine]
+    cmd = [cfg["qemu"], "-name", f"{safe_name},process=blackwall-{vm.slug}", "-machine", machine]
 
     if fam == "windows":
         cpu = "host,hv_relaxed,hv_vapic,hv_spinlocks=0x1fff,hv_time,hv_vpindex,hv_synic,hv_stimer," \
@@ -366,6 +388,7 @@ def build_command(cfg: Config, vm: VM) -> list[str]:
     fmt_opt = f",format={fmt}" if fmt else ""
     cmd += ["-drive", f"file={_e(vm.disk)},if=none,id=disk0{fmt_opt},discard=unmap,cache=writeback"]
     if fam == "windows":
+        # serial do nome antigo (Mikoshi): trocar faria o Windows da VM ver um disco novo
         cmd += ["-device", "nvme,drive=disk0,serial=MIKOSHI0451,bootindex=1"]
     elif fam == "linux":
         cmd += ["-device", "virtio-blk-pci,drive=disk0,bootindex=1"]

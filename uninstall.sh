@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # ============================================================
-#   ARASAKA MIKOSHI // desinstalador
+#   ARASAKA BLACKWALL // desinstalador
 #   ./uninstall.sh          remove o app (mantem suas VMs)
 #   ./uninstall.sh --tudo   remove tambem as VMs e configuracoes
 #   QEMU, OVMF e swtpm NAO sao removidos.
 # ============================================================
 set -uo pipefail
-APP_ID=arasaka-mikoshi
+APP_ID=arasaka-blackwall
 DATA="${XDG_DATA_HOME:-$HOME/.local/share}/$APP_ID"
 APPS="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
 R=$'\e[38;2;227;18;31m'; B=$'\e[1m'; N=$'\e[0m'
@@ -28,4 +28,4 @@ else
   printf '   Suas VMs continuam em %s\n' "$DATA/machines"
 fi
 update-desktop-database -q "$APPS" 2>/dev/null
-printf '\n%s%s ■ ARASAKA MIKOSHI REMOVIDO%s\n\n' "$R" "$B" "$N"
+printf '\n%s%s ■ ARASAKA BLACKWALL REMOVIDO%s\n\n' "$R" "$B" "$N"

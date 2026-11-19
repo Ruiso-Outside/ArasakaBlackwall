@@ -1,9 +1,9 @@
-# ARASAKA MIKOSHI
+# ARASAKA BLACKWALL
 
 Gerenciador de **máquinas virtuais** para Linux com o visual da Arasaka. Roda **Windows 10, Windows 11
 e distribuições Linux** dentro de janelas no seu Zorin OS.
 
-O Mikoshi não é um hipervisor novo. Ele usa o **QEMU + KVM**, o mesmo motor do GNOME Boxes e do
+O Blackwall não é um hipervisor novo. Ele usa o **QEMU + KVM**, o mesmo motor do GNOME Boxes e do
 virt-manager: a VM roda direto no processador, com desempenho perto do nativo.
 
 | Peça | Função |
@@ -38,7 +38,7 @@ Ao escolher a ISO, o perfil é detectado pelo nome do arquivo (por exemplo `Win1
 ## Instalar
 
 ```bash
-tar xzf ArasakaMikoshi.tar.gz && cd ArasakaMikoshi
+tar xzf ArasakaBlackwall.tar.gz && cd ArasakaBlackwall
 ```
 
 ```bash
@@ -79,16 +79,16 @@ Se a aba Sistema disser que a virtualização está desligada, entre na BIOS/UEF
   `smb://10.0.2.4/qemu` (Linux). Precisa do Samba no PC.
 - **Disco existente:** a opção "Usar um disco virtual existente" aceita discos do VirtualBox (.vdi),
   do VMware (.vmdk) e do Hyper-V (.vhdx).
-- As VMs continuam ligadas mesmo se você fechar o Mikoshi. Reabra o app para controlá-las.
+- As VMs continuam ligadas mesmo se você fechar o Blackwall. Reabra o app para controlá-las.
 
 ## Linha de comando
 
 ```bash
-arasaka-mikoshi                # interface
-arasaka-mikoshi --start SLUG   # liga uma VM direto (SLUG = nome da pasta da VM)
+arasaka-blackwall                # interface
+arasaka-blackwall --start SLUG   # liga uma VM direto (SLUG = nome da pasta da VM)
 ```
 
-Cada VM fica em `~/.local/share/arasaka-mikoshi/machines/<nome>/`, com estes arquivos:
+Cada VM fica em `~/.local/share/arasaka-blackwall/machines/<nome>/`, com estes arquivos:
 
 | Arquivo | Conteúdo |
 |---|---|
@@ -108,5 +108,5 @@ O comando acima mantém as VMs. Para apagar também as VMs, use `./uninstall.sh 
 
 ---
 
-Arasaka e Mikoshi são marcas da CD PROJEKT RED, e a fonte cedge1 usa a licença FontStruct
+Arasaka e Blackwall são marcas da CD PROJEKT RED, e a fonte cedge1 usa a licença FontStruct
 Non-Commercial. Este é um projeto pessoal de fã, sem fins comerciais.
