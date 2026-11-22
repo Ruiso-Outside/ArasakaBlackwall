@@ -693,7 +693,8 @@ class EditDialog(BaseDialog):
         form.addRow(label("DISCO", "muted", 2, bold=True), self.disk)
         self.display = QComboBox()
         self.display.addItem("Janela QEMU (GTK)", "gtk")
-        self.display.addItem("SPICE: copiar/colar e USB", "spice")
+        if not core.WIN:   # o QEMU para Windows nao tem SPICE
+            self.display.addItem("SPICE: copiar/colar e USB", "spice")
         self.display.setCurrentIndex(1 if (m.get("display") or cfg["display"]) == "spice" else 0)
         form.addRow(label("TELA", "muted", 2, bold=True), self.display)
         self.share = QLineEdit(m.get("share", ""))
@@ -805,7 +806,8 @@ class NewPage(Page):
             ol.addWidget(w, 0, i)
         self.display = QComboBox()
         self.display.addItem("Janela QEMU (GTK): simples", "gtk")
-        self.display.addItem("SPICE: copiar/colar, USB e tela redimensionavel", "spice")
+        if not core.WIN:   # o QEMU para Windows nao tem SPICE
+            self.display.addItem("SPICE: copiar/colar, USB e tela redimensionavel", "spice")
         self.display.setCurrentIndex(1 if win.cfg["display"] == "spice" else 0)
         ol.addWidget(label("TELA", "muted", 2, bold=True), 1, 0)
         ol.addWidget(self.display, 1, 1, 1, 3)
@@ -909,6 +911,7 @@ class SystemPage(Page):
         self.lay.addLayout(self.grid)
         row = QHBoxLayout()
         row.addWidget(button("INSTALAR TUDO", "primary", lambda: self.install("qemu"),
+                             "QEMU para Windows (com o UEFI) pelo winget" if core.WIN else
                              "QEMU, UEFI (OVMF), TPM (swtpm) e permissao KVM"))
         row.addWidget(button("REVERIFICAR", "ghost", self.refresh))
         row.addStretch()
@@ -925,6 +928,9 @@ class SystemPage(Page):
         il.setContentsMargins(20, 14, 20, 14)
         il.addWidget(label("COMO FUNCIONA", "section", 3))
         il.addWidget(label(
+            "No Windows o Blackwall usa o QEMU com a Plataforma do Hipervisor do Windows (WHPX): a VM roda direto "
+            "no processador. Ligar a plataforma pede administrador e reiniciar o PC. O QEMU para Windows nao tem "
+            "TPM nem SPICE: a janela da VM e a do proprio QEMU." if core.WIN else
             "O Blackwall usa o QEMU com KVM, a mesma tecnologia do GNOME Boxes e do virt-manager: a VM roda "
             "direto no processador, com desempenho perto do nativo. Depois de instalar, encerre a sessao e "
             "entre de novo para a permissao do KVM valer.", "muted", 0.3, wrap=True))
@@ -946,7 +952,7 @@ class SystemPage(Page):
         cmd = core.dep_script(key)
         if not cmd or self.proc:
             return
-        self.log.appendPlainText(f">> instalando ({key})... digite sua senha na janela que abrir")
+        self.log.appendPlainText(f">> instalando ({key})..." + ("" if core.WIN else " digite sua senha na janela que abrir"))
         self.proc = QProcess(self)
         self.proc.setProcessChannelMode(QProcess.MergedChannels)
         self.proc.readyReadStandardOutput.connect(
@@ -957,7 +963,9 @@ class SystemPage(Page):
             self.log.appendPlainText("■ concluido" if code == 0 else f"!! falhou (codigo {code})")
             self.proc = None
             self.refresh()
-            if code == 0 and key in ("qemu", "kvm"):
+            if code == 0 and key == "whpx":
+                self.win.alert("WHPX", "Plataforma do Hipervisor ligada. Reinicie o PC para a aceleracao valer.")
+            elif code == 0 and key in ("qemu", "kvm") and not core.WIN:
                 self.win.alert("KVM", "Instalado. Encerre a sessao e entre de novo para a permissao do KVM valer.")
         self.proc.finished.connect(fin)
         self.proc.start(cmd[0], cmd[1:])
@@ -980,7 +988,8 @@ class SettingsPage(Page):
         form.addRow(label("QEMU", "muted", 2, bold=True), self.qemu)
         self.disp = QComboBox()
         self.disp.addItem("Janela QEMU (GTK)", "gtk")
-        self.disp.addItem("SPICE (remote-viewer)", "spice")
+        if not core.WIN:   # o QEMU para Windows nao tem SPICE
+            self.disp.addItem("SPICE (remote-viewer)", "spice")
         self.disp.setCurrentIndex(1 if cfg["display"] == "spice" else 0)
         self.disp.currentIndexChanged.connect(lambda _: self._set("display", self.disp.currentData()))
         form.addRow(label("TELA PADRAO", "muted", 2, bold=True), self.disp)
@@ -993,7 +1002,7 @@ class SettingsPage(Page):
         al = QVBoxLayout(about)
         al.setContentsMargins(22, 18, 22, 18)
         al.addWidget(label(f"{APP_NAME}  v{VERSION}", None, 3, 16, True))
-        al.addWidget(label("Gerenciador de maquinas virtuais para Linux (QEMU/KVM, OVMF, swtpm, SPICE). "
+        al.addWidget(label("Gerenciador de maquinas virtuais para Linux (QEMU/KVM, OVMF, swtpm, SPICE) e Windows (QEMU/WHPX). "
                            "Arasaka e Blackwall sao da CD PROJEKT RED; projeto pessoal de fa.", "muted", 0.3,
                            wrap=True))
         self.lay.addWidget(about)
@@ -1068,7 +1077,8 @@ class MainWindow(QMainWindow):
 
     def set_link(self, ok: bool):
         self.link.setObjectName("muted" if ok else "red")
-        self.link.setText("■  KVM · ONLINE" if ok else "■  KVM INDISPONIVEL")
+        acc = "WHPX" if core.WIN else "KVM"
+        self.link.setText(f"■  {acc} · ONLINE" if ok else f"■  {acc} INDISPONIVEL")
         self.link.style().unpolish(self.link)
         self.link.style().polish(self.link)
 

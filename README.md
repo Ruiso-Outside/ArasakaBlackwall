@@ -56,6 +56,11 @@ do KVM.
 Se a aba Sistema disser que a virtualização está desligada, entre na BIOS/UEFI do PC e ative
 **SVM Mode** (AMD) ou **Intel Virtualization Technology**.
 
+### Windows 10/11
+
+Pela **Arasaka Central** (Loja → Apps), ou extraia o `ArasakaBlackwall-vX.Y.Z-windows.zip` e dê dois cliques em **`install.bat`**. O instalador instala o Python 3.12 pelo winget (se ainda não houver), cria os atalhos no Menu Iniciar e na Área de Trabalho e o comando `arasaka-blackwall`. Não precisa de administrador. No Windows ele usa o QEMU para Windows (instale pela aba SISTEMA, pelo winget) com a Plataforma do Hipervisor do Windows (WHPX) para a VM rodar direto no processador. O QEMU para Windows não tem TPM nem SPICE: para o Windows 11, use o BypassTPMCheck no instalador.
+Para remover: `powershell -ExecutionPolicy Bypass -File uninstall.ps1` (os seus dados são mantidos).
+
 ## Criar uma VM
 
 1. Vá em **02 Nova máquina** e escolha a ISO. Use **BAIXAR ISO** se ainda não tiver o arquivo.

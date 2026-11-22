@@ -22,18 +22,34 @@ from pathlib import Path
 
 APP_ID = "arasaka-blackwall"
 APP_NAME = "ARASAKA BLACKWALL"
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 
-DEMO = os.environ.get("ARASAKA_BLACKWALL_DEMO") == "1" or sys.platform == "win32"
+DEMO = os.environ.get("ARASAKA_BLACKWALL_DEMO") == "1"
 
 _home = os.environ.get("ARASAKA_BLACKWALL_HOME")
 HOME = Path(_home) if _home else Path.home()
+
+
+def _config_home() -> Path:
+    """Configuracoes: %APPDATA% no Windows, ~/.config (XDG) no Linux. Com a pasta pessoal trocada (testes), fica nela."""
+    if sys.platform == "win32" and HOME == Path.home():
+        return Path(os.environ.get("APPDATA") or HOME)
+    return Path(os.environ.get("XDG_CONFIG_HOME", HOME / ".config"))
+
+
+def _data_home() -> Path:
+    """Dados: %LOCALAPPDATA% no Windows, ~/.local/share (XDG) no Linux."""
+    if sys.platform == "win32" and HOME == Path.home():
+        return Path(os.environ.get("LOCALAPPDATA") or HOME)
+    return Path(os.environ.get("XDG_DATA_HOME", HOME / ".local/share"))
+
+
 if _home:
     DATA = HOME / ".local/share" / APP_ID
     CONFIG_DIR = HOME / ".config" / APP_ID
 else:
-    DATA = Path(os.environ.get("XDG_DATA_HOME", HOME / ".local/share")) / APP_ID
-    CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", HOME / ".config")) / APP_ID
+    DATA = _data_home() / APP_ID
+    CONFIG_DIR = _config_home() / APP_ID
 ASSETS = Path(__file__).resolve().parent / "assets"
 
 
@@ -57,6 +73,110 @@ def _migrate_old_name():
 
 if not DEMO:
     _migrate_old_name()
+
+
+# ================================================================ Windows (QEMU para Windows + WHPX)
+WIN = sys.platform == "win32"
+NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+
+def qemu_dirs() -> list[Path]:
+    """Onde o QEMU para Windows costuma ficar (instalador oficial e winget)."""
+    if not WIN:
+        return []
+    out = []
+    for env in ("ProgramFiles", "ProgramW6432", "LOCALAPPDATA"):
+        base = os.environ.get(env)
+        if base:
+            out += [Path(base) / "qemu", Path(base) / "Programs" / "qemu"]
+    return [d for d in dict.fromkeys(out) if d.is_dir()]
+
+
+def _resolve(name: str) -> str:
+    found = shutil.which(name)
+    if found:
+        return found
+    for d in qemu_dirs():
+        exe = d / (Path(name).name + ("" if name.lower().endswith(".exe") else ".exe"))
+        if exe.is_file():
+            return str(exe)
+    return name
+
+
+def qemu_exe(cfg) -> str:
+    return _resolve(cfg.data.get("qemu") or DEFAULTS["qemu"])
+
+
+def qemu_img_exe(cfg) -> str:
+    return _resolve(cfg.data.get("qemu_img") or DEFAULTS["qemu_img"])
+
+
+def whpx_ok() -> bool:
+    """Plataforma do Hipervisor do Windows ligada (o WinHvPlatform.dll so existe com o recurso ativo)."""
+    return WIN and (Path(os.environ.get("SystemRoot", "C:/Windows")) / "System32" / "WinHvPlatform.dll").is_file()
+
+
+def _win_image(pid: int) -> str:
+    import ctypes
+    from ctypes import wintypes
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.OpenProcess.restype = wintypes.HANDLE
+    h = k32.OpenProcess(0x1000, False, pid)            # PROCESS_QUERY_LIMITED_INFORMATION
+    if not h:
+        return ""
+    try:
+        buf = ctypes.create_unicode_buffer(1024)
+        size = wintypes.DWORD(1024)
+        return buf.value if k32.QueryFullProcessImageNameW(h, 0, buf, ctypes.byref(size)) else ""
+    finally:
+        k32.CloseHandle(h)
+
+
+def _win_proc_stats(pid: int):
+    """(tempo de CPU em s, memoria em MB, segundos desde o inicio) de um processo do Windows."""
+    import ctypes
+    from ctypes import wintypes
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.OpenProcess.restype = wintypes.HANDLE
+    h = k32.OpenProcess(0x1000 | 0x0010, False, pid)  # + PROCESS_VM_READ
+    if not h:
+        return None
+
+    class PMC(ctypes.Structure):
+        _fields_ = [("cb", wintypes.DWORD), ("PageFaultCount", wintypes.DWORD)] + \
+                   [(n, ctypes.c_size_t) for n in ("PeakWorkingSetSize", "WorkingSetSize", "QuotaPeakPagedPoolUsage",
+                                                   "QuotaPagedPoolUsage", "QuotaPeakNonPagedPoolUsage", "QuotaNonPagedPoolUsage",
+                                                   "PagefileUsage", "PeakPagefileUsage")]
+    try:
+        c, e, k, u = (wintypes.FILETIME() for _ in range(4))
+        if not k32.GetProcessTimes(h, ctypes.byref(c), ctypes.byref(e), ctypes.byref(k), ctypes.byref(u)):
+            return None
+        ft = lambda f: (f.dwHighDateTime << 32 | f.dwLowDateTime)  # noqa: E731
+        cpu = (ft(k) + ft(u)) / 1e7
+        start = ft(c) / 1e7 - 11644473600                  # FILETIME (1601) -> epoch
+        pmc = PMC()
+        pmc.cb = ctypes.sizeof(PMC)
+        ctypes.WinDLL("psapi").GetProcessMemoryInfo(h, ctypes.byref(pmc), pmc.cb)
+        return cpu, pmc.WorkingSetSize // (1024 * 1024), time.time() - start
+    finally:
+        k32.CloseHandle(h)
+
+
+def _free_port() -> int:
+    with socket.socket() as t:
+        t.bind(("127.0.0.1", 0))
+        return t.getsockname()[1]
+
+
+def win_ovmf(secure: bool) -> tuple[str, str] | None:
+    """O firmware UEFI (edk2) que vem dentro do QEMU para Windows."""
+    for d in qemu_dirs():
+        share = d / "share"
+        code = share / ("edk2-x86_64-secure-code.fd" if secure else "edk2-x86_64-code.fd")
+        var = share / "edk2-i386-vars.fd"
+        if code.is_file() and var.is_file():
+            return str(code), str(var)
+    return None
 
 
 # ================================================================ config
@@ -170,7 +290,7 @@ class VM:
         d = Path(self.meta.get("disk") or "disk.qcow2")
         return d if d.is_absolute() else self.path / d
 
-    qmp_path = property(lambda self: self.path / "qmp.sock")
+    qmp_path = property(lambda self: self.path / ("qmp.port" if WIN else "qmp.sock"))   # Windows: QMP por TCP local
     pid_path = property(lambda self: self.path / "qemu.pid")
     log_path = property(lambda self: self.path / "qemu.log")
     vars_path = property(lambda self: self.path / "OVMF_VARS.fd")
@@ -197,6 +317,8 @@ class VM:
             pid = int(self.pid_path.read_text().strip())
         except (OSError, ValueError):
             return None
+        if WIN:
+            return pid if "qemu" in _win_image(pid).lower() else None
         try:
             cmd = Path(f"/proc/{pid}/cmdline").read_bytes()
         except OSError:
@@ -249,6 +371,8 @@ OVMF_CANDIDATES = {
 
 
 def find_ovmf(secure: bool) -> tuple[str, str] | None:
+    if WIN and not DEMO:
+        return win_ovmf(secure)
     if DEMO:
         return ("/usr/share/OVMF/OVMF_CODE_4M.secboot.fd" if secure else "/usr/share/OVMF/OVMF_CODE_4M.fd",
                 "/usr/share/OVMF/OVMF_VARS_4M.ms.fd" if secure else "/usr/share/OVMF/OVMF_VARS_4M.fd")
@@ -259,6 +383,9 @@ def find_ovmf(secure: bool) -> tuple[str, str] | None:
 
 
 def kvm_ok() -> bool:
+    """Aceleracao por hardware: KVM no Linux, WHPX (Plataforma do Hipervisor) no Windows."""
+    if WIN and not DEMO:
+        return whpx_ok()
     return DEMO or os.access("/dev/kvm", os.R_OK | os.W_OK)
 
 
@@ -269,6 +396,17 @@ def host_cpus() -> int:
 def host_ram_mb() -> int:
     if DEMO:
         return 32768
+    if WIN:
+        import ctypes
+
+        class MS(ctypes.Structure):
+            _fields_ = [("dwLength", ctypes.c_ulong), ("dwMemoryLoad", ctypes.c_ulong)] + \
+                       [(n, ctypes.c_ulonglong) for n in ("tp", "ap", "tf", "af", "tv", "av", "ae")]
+        m = MS()
+        m.dwLength = ctypes.sizeof(MS)
+        if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(m)):
+            return m.tp // (1024 * 1024)
+        return 8192
     try:
         for line in Path("/proc/meminfo").read_text().splitlines():
             if line.startswith("MemTotal:"):
@@ -317,7 +455,7 @@ def create_vm(cfg: Config, name: str, profile: str, cpus: int, ram: int, disk_gb
         if DEMO:
             vm.disk.write_bytes(b"")
         else:
-            r = subprocess.run([cfg["qemu_img"], "create", "-q", "-f", "qcow2", "-o", "lazy_refcounts=on",
+            r = subprocess.run([qemu_img_exe(cfg), "create", "-q", "-f", "qcow2", "-o", "lazy_refcounts=on",
                                 str(vm.disk), f"{disk_gb}G"], capture_output=True, text=True)
             if r.returncode != 0:
                 shutil.rmtree(vm.path, ignore_errors=True)
@@ -329,7 +467,7 @@ def disk_info(cfg: Config, path: Path) -> dict:
     if DEMO:
         return {"format": "qcow2", "virtual-size": 80 * 1024 ** 3, "actual-size": 23 * 1024 ** 3}
     try:
-        r = subprocess.run([cfg["qemu_img"], "info", "--output=json", "-U", str(path)],
+        r = subprocess.run([qemu_img_exe(cfg), "info", "--output=json", "-U", str(path)],
                            capture_output=True, text=True, timeout=10)
         return json.loads(r.stdout) if r.returncode == 0 else {}
     except Exception:
@@ -339,7 +477,7 @@ def disk_info(cfg: Config, path: Path) -> dict:
 def resize_disk(cfg: Config, vm: VM, new_gb: int) -> str:
     if DEMO:
         return ""
-    r = subprocess.run([cfg["qemu_img"], "resize", str(vm.disk), f"{new_gb}G"], capture_output=True, text=True)
+    r = subprocess.run([qemu_img_exe(cfg), "resize", str(vm.disk), f"{new_gb}G"], capture_output=True, text=True)
     return r.stderr.strip() if r.returncode else ""
 
 
@@ -360,18 +498,23 @@ def build_command(cfg: Config, vm: VM) -> list[str]:
     fam = vm.family
     kvm = kvm_ok()
     secure = bool(m.get("secureboot")) and bool(m.get("uefi"))
-    machine = "q35,accel=kvm" if kvm else "q35,accel=tcg"
+    # no Windows a aceleracao vai no -accel (o "-machine accel=" e o -accel nao podem ir juntos)
+    machine = "q35" if WIN else ("q35,accel=kvm" if kvm else "q35,accel=tcg")
     if secure:
         machine += ",smm=on"
     safe_name = vm.name.replace(",", " ")
-    cmd = [cfg["qemu"], "-name", f"{safe_name},process=blackwall-{vm.slug}", "-machine", machine]
+    cmd = [qemu_exe(cfg), "-name", f"{safe_name},process=blackwall-{vm.slug}", "-machine", machine]
 
-    if fam == "windows":
+    if WIN:
+        cpu = "max"     # WHPX nao aceita "-cpu host" nem os enlightenments hv_* do KVM
+    elif fam == "windows":
         cpu = "host,hv_relaxed,hv_vapic,hv_spinlocks=0x1fff,hv_time,hv_vpindex,hv_synic,hv_stimer," \
               "hv_frequencies,hv_reset,hv_runtime" if kvm else "max"
     else:
         cpu = "host" if kvm else "max"
     cmd += ["-cpu", cpu, "-smp", str(m["cpus"]), "-m", str(m["ram"])]
+    if WIN:
+        cmd += ["-accel", "whpx,kernel-irqchip=off" if kvm else "tcg"]
 
     # firmware
     if m.get("uefi"):
@@ -432,7 +575,9 @@ def build_command(cfg: Config, vm: VM) -> list[str]:
 
     # video e janela
     display = m.get("display") or cfg["display"]
-    gl = bool(m.get("accel3d")) and fam == "linux"
+    gl = bool(m.get("accel3d")) and fam == "linux" and not WIN
+    if WIN:
+        display = "gtk"     # o QEMU para Windows nao tem o SPICE (spice-app); a janela GTK funciona
     if display == "spice":
         if fam == "linux":
             cmd += ["-vga", "none", "-device", "virtio-vga-gl" if gl else "virtio-vga"]
@@ -453,8 +598,13 @@ def build_command(cfg: Config, vm: VM) -> list[str]:
             cmd += ["-vga", "std"]
         cmd += ["-display", "gtk,zoom-to-fit=on" + (",gl=on" if gl else "")]
 
-    cmd += ["-qmp", f"unix:{_e(vm.qmp_path)},server=on,wait=off", "-pidfile", str(vm.pid_path),
-            "-monitor", "none"]
+    if WIN:
+        port = _free_port()
+        vm.qmp_path.write_text(str(port))
+        cmd += ["-qmp", f"tcp:127.0.0.1:{port},server=on,wait=off"]
+    else:
+        cmd += ["-qmp", f"unix:{_e(vm.qmp_path)},server=on,wait=off"]
+    cmd += ["-pidfile", str(vm.pid_path), "-monitor", "none"]
     return cmd
 
 
@@ -466,9 +616,9 @@ def audio_driver(cfg: Config) -> str:
     if DEMO:
         return "pa"
     if "drv" not in _AUDIO_CACHE:
-        rc, out = _run([cfg["qemu"], "-audiodev", "help"])
+        rc, out = _run([qemu_exe(cfg), "-audiodev", "help"])
         names = out.split()
-        _AUDIO_CACHE["drv"] = next((d for d in ("pipewire", "pa", "alsa") if d in names), "")
+        _AUDIO_CACHE["drv"] = next((d for d in ("pipewire", "pa", "alsa", "dsound") if d in names), "")
     return _AUDIO_CACHE["drv"]
 
 
@@ -508,13 +658,16 @@ def start_vm(cfg: Config, vm: VM) -> str:
         vm.meta["last_run"] = time.strftime("%Y-%m-%d %H:%M")
         vm.save()
         return ""
-    if not shutil.which(cfg["qemu"]):
+    if not shutil.which(qemu_exe(cfg)):
         return f"QEMU nao encontrado ({cfg['qemu']}). Instale pela aba SISTEMA."
     if not vm.disk.exists():
         return f"Disco nao encontrado: {vm.disk}"
     for f in (vm.qmp_path, vm.pid_path, vm.tpm_sock):
         f.unlink(missing_ok=True)
     if vm.meta.get("tpm"):
+        if WIN:
+            return ("Esta VM usa TPM 2.0, que o QEMU para Windows nao emula (nao ha swtpm). Desligue o TPM nas "
+                    "configuracoes da VM; para instalar o Windows 11 sem TPM, use a chave BypassTPMCheck no instalador.")
         if not shutil.which("swtpm"):
             return "Esta VM usa TPM 2.0 mas o 'swtpm' nao esta instalado (aba SISTEMA)."
         vm.tpm_dir.mkdir(exist_ok=True)
@@ -531,7 +684,7 @@ def start_vm(cfg: Config, vm: VM) -> str:
     log.write("# " + " ".join(cmd) + "\n\n")
     log.flush()
     subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
-                     start_new_session=True, cwd=str(vm.path))
+                     start_new_session=True, cwd=str(vm.path), creationflags=NO_WINDOW)
     # espera o QEMU subir (ou falhar)
     for _ in range(60):
         time.sleep(0.1)
@@ -613,6 +766,8 @@ def screendump(vm: VM) -> Path | None:
 def open_viewer(vm: VM) -> str:
     """Reabre a tela de uma VM SPICE (a janela GTK nao pode ser reaberta)."""
     sock = vm.path / "spice.sock"
+    if WIN:
+        return "No Windows a janela da VM e a do QEMU (GTK): ela fica aberta enquanto a VM estiver ligada."
     if not sock.exists():
         return "A janela desta VM e do tipo GTK: ela fica aberta enquanto a VM estiver ligada."
     if not shutil.which("remote-viewer"):
@@ -627,10 +782,18 @@ def qmp(vm: VM, command: str, args: dict | None = None, timeout: float = 2.0):
     """Envia um comando QMP. Retorna o 'return' (dict/list) ou None em erro."""
     if DEMO or not vm.qmp_path.exists():
         return None
-    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    if WIN:
+        try:
+            addr = ("127.0.0.1", int(vm.qmp_path.read_text().strip()))
+        except (OSError, ValueError):
+            return None
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    else:
+        addr = str(vm.qmp_path)
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     s.settimeout(timeout)
     try:
-        s.connect(str(vm.qmp_path))
+        s.connect(addr)
         f = s.makefile("rwb")
         f.readline()  # saudacao
         for msg in ({"execute": "qmp_capabilities"}, {"execute": command, **({"arguments": args} if args else {})}):
@@ -670,6 +833,19 @@ class Stats:
             st = _DEMO_STATE.get(vm.slug, {})
             return {"cpu": 18 + 14 * math.sin(t / 3) if st.get("state") == "running" else 0.0,
                     "ram_mb": vm.meta["ram"] * 0.62, "uptime": t - st.get("t0", t)}
+        if WIN:
+            st = _win_proc_stats(pid)
+            if not st:
+                return None
+            cpu_s, rss, uptime = st
+            now = time.time()
+            cpu = 0.0
+            if pid in self.prev:
+                t0, c0 = self.prev[pid]
+                if now - t0 > 0:
+                    cpu = (cpu_s - c0) / (now - t0) * 100 / max(1, vm.meta["cpus"])
+            self.prev[pid] = (now, cpu_s)
+            return {"cpu": max(0.0, min(100.0, cpu)), "ram_mb": rss, "uptime": uptime}
         try:
             fields = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
             ticks = int(fields[11]) + int(fields[12])
@@ -700,7 +876,7 @@ def snapshots(cfg: Config, vm: VM) -> list[dict]:
             {"name": "instalacao-limpa", "date": "2026-11-18 05:40", "size": "0 B"}])
     if not str(vm.disk).endswith(".qcow2") or not vm.disk.exists():
         return []
-    r = subprocess.run([cfg["qemu_img"], "snapshot", "-l", "-U", str(vm.disk)], capture_output=True, text=True)
+    r = subprocess.run([qemu_img_exe(cfg), "snapshot", "-l", "-U", str(vm.disk)], capture_output=True, text=True)
     out = []
     for line in r.stdout.splitlines()[2:]:
         parts = line.split()
@@ -726,7 +902,7 @@ def snapshot_cmd(cfg: Config, vm: VM, action: str, name: str) -> str:
     if not str(vm.disk).endswith(".qcow2"):
         return "Snapshots so funcionam com disco qcow2."
     flag = {"create": "-c", "apply": "-a", "delete": "-d"}[action]
-    r = subprocess.run([cfg["qemu_img"], "snapshot", flag, name, str(vm.disk)], capture_output=True, text=True)
+    r = subprocess.run([qemu_img_exe(cfg), "snapshot", flag, name, str(vm.disk)], capture_output=True, text=True)
     return r.stderr.strip() if r.returncode else ""
 
 
@@ -743,13 +919,18 @@ class Check:
 
 def _run(argv, timeout=5):
     try:
-        p = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
+        p = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, creationflags=NO_WINDOW)
         return p.returncode, (p.stdout + p.stderr).strip()
     except Exception as e:  # noqa: BLE001
         return 127, str(e)
 
 
 def cpu_virt() -> str:
+    if WIN:
+        import ctypes
+        import platform
+        on = bool(ctypes.windll.kernel32.IsProcessorFeaturePresent(21)) or whpx_ok()   # PF_VIRT_FIRMWARE_ENABLED
+        return ("AMD-V" if "AMD" in platform.processor().upper() else "Intel VT-x") if on else ""
     try:
         flags = Path("/proc/cpuinfo").read_text()
     except OSError:
@@ -769,6 +950,8 @@ def system_checks(cfg: Config) -> list[Check]:
             Check("smb", "PASTA COMPARTILHADA (SAMBA)", False, "opcional: compartilhar pastas com a VM", "smb",
                   optional=True),
         ]
+    if WIN:
+        return windows_checks(cfg)
     checks = []
     v = cpu_virt()
     checks.append(Check("virt", "VIRTUALIZACAO DA CPU", bool(v),
@@ -781,9 +964,9 @@ def system_checks(cfg: Config) -> list[Check]:
     else:
         checks.append(Check("kvm", "KVM", False, "modulo KVM ausente (sem virtualizacao a VM fica muito lenta)",
                             "qemu"))
-    q = shutil.which(cfg["qemu"])
-    qv = _run([cfg["qemu"], "--version"])[1].splitlines()[0] if q else ""
-    checks.append(Check("qemu", "QEMU", bool(q) and bool(shutil.which(cfg["qemu_img"])), qv or "nao instalado",
+    q = shutil.which(qemu_exe(cfg))
+    qv = _run([qemu_exe(cfg), "--version"])[1].splitlines()[0] if q else ""
+    checks.append(Check("qemu", "QEMU", bool(q) and bool(shutil.which(qemu_img_exe(cfg))), qv or "nao instalado",
                         None if q else "qemu"))
     fw = find_ovmf(True) or find_ovmf(False)
     checks.append(Check("ovmf", "FIRMWARE UEFI + SECURE BOOT", bool(find_ovmf(True)),
@@ -803,8 +986,35 @@ def system_checks(cfg: Config) -> list[Check]:
     return checks
 
 
+def windows_checks(cfg: Config) -> list[Check]:
+    v = cpu_virt()
+    q = Path(qemu_exe(cfg)).is_file()
+    qv = _run([qemu_exe(cfg), "--version"])[1].splitlines()[0] if q else ""
+    return [
+        Check("virt", "VIRTUALIZACAO DA CPU", bool(v), f"{v} · {host_cpus()} nucleos · {host_ram_mb() // 1024} GB RAM" if v else
+              "VT-x/AMD-V desligado: ative na BIOS/UEFI do PC (SVM ou Intel Virtualization)"),
+        Check("kvm", "PLATAFORMA DO HIPERVISOR (WHPX)", whpx_ok(),
+              "aceleracao por hardware ligada" if whpx_ok() else "desligada: sem ela a VM fica muito lenta (pede reiniciar o PC)",
+              None if whpx_ok() else "whpx"),
+        Check("qemu", "QEMU", q and Path(qemu_img_exe(cfg)).is_file(), qv or "nao instalado", None if q else "qemu"),
+        Check("ovmf", "FIRMWARE UEFI + SECURE BOOT", bool(find_ovmf(True)),
+              Path(find_ovmf(True)[0]).name if find_ovmf(True) else "vem junto com o QEMU", None if find_ovmf(True) else "qemu"),
+        Check("swtpm", "TPM 2.0 (WINDOWS 11)", False, "o QEMU para Windows nao emula TPM: use o BypassTPMCheck", optional=True),
+    ]
+
+
 def dep_script(key: str) -> list[str] | None:
     """Comando (com pkexec) que instala o que falta."""
+    if WIN and not DEMO:
+        if key == "qemu":
+            return ["winget", "install", "-e", "--id", "SoftwareFreedomConservancy.QEMU", "--accept-package-agreements",
+                    "--accept-source-agreements"]
+        if key == "whpx":   # recurso do Windows: pede administrador (UAC) e reiniciar o PC
+            return ["powershell", "-NoProfile", "-Command",
+                    "Start-Process powershell -Verb RunAs -Wait -ArgumentList '-NoProfile','-Command',"
+                    "'Enable-WindowsOptionalFeature -Online -FeatureName HypervisorPlatform -All -NoRestart'; "
+                    "Write-Output 'Plataforma do Hipervisor ligada: reinicie o PC'"]
+        return None
     user = os.environ.get("USER", "")
     if key == "qemu":
         s = ("set -e; apt-get update; export DEBIAN_FRONTEND=noninteractive; apt-get install -y "
